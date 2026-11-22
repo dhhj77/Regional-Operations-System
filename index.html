@@ -1,0 +1,1655 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>지역 관리 시스템 - 구역 일정 캘린더</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <!-- Google Fonts: Noto Sans KR -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Firebase SDK (v10 compat) -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <script src="./firebase-config.js"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Noto Sans KR"', 'sans-serif'],
+          },
+          colors: {
+            brand: {
+              50: '#f0f7ff',
+              100: '#e0effe',
+              500: '#2563eb',
+              600: '#1d4ed8',
+              700: '#1e40af',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* 스크롤바 미려화 */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #f1f5f9;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+    /* 가로 스크롤바 숨기기 유틸리티 */
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+    .calendar-cell-min-h {
+      min-height: 105px;
+    }
+    @media (max-width: 640px) {
+      .calendar-cell-min-h {
+        min-height: 68px;
+      }
+    }
+    /* 일정 제목 줄바꿈 최적화 (단어 끊김 방지 및 최대 2줄 표시) */
+    .schedule-title-clamp {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      word-break: break-all;
+      line-height: 1.2;
+    }
+    @media (max-width: 640px) {
+      .schedule-title-clamp {
+        -webkit-line-clamp: 1;
+        font-size: 10px;
+      }
+    }
+  </style>
+</head>
+<body class="bg-[#f8fafc] text-slate-800 font-sans min-h-screen flex flex-col antialiased select-none md:select-auto">
+
+  <!-- ==================== 네비게이션 헤더 ==================== -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
+    <div class="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-14 sm:h-16 flex items-center justify-between">
+      <!-- 로고 및 시스템 타이틀 -->
+      <div class="flex items-center gap-2 sm:gap-3">
+        <div class="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-blue-500/20 shrink-0">
+          <i class="fa-solid fa-church text-sm sm:text-lg"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-1.5 sm:gap-2">
+            <h1 class="text-sm sm:text-lg font-bold tracking-tight text-slate-900 leading-none">지역 관리 시스템</h1>
+            <span class="text-[10px] sm:text-xs px-1.5 py-0.5 rounded-full font-medium bg-blue-50 text-blue-700 border border-blue-200">2026</span>
+          </div>
+          <p class="text-[10px] sm:text-xs text-slate-500 mt-0.5 hidden xs:block">구역원 일정 및 심방 통합 포털</p>
+        </div>
+      </div>
+
+      <!-- 우측 로그인 사용자 상태바 & 액션 -->
+      <div class="flex items-center gap-2" id="headerUserSection">
+        <!-- 렌더링 스크립트에 의해 동적 구성됨 -->
+      </div>
+    </div>
+  </header>
+
+  <!-- ==================== 메인 본문 콘텐츠 ==================== -->
+  <main class="max-w-7xl mx-auto px-2 sm:px-6 lg:px-8 py-3 sm:py-6 w-full flex-1 flex flex-col gap-3 sm:gap-5">
+    
+    <!-- 1. 핵심 요약 지표 (스크린샷 상단 바 반영: 토글 가능, 기본 접힘 상태) -->
+    <section class="bg-white rounded-xl sm:rounded-2xl border border-slate-200 shadow-xs sm:shadow-sm overflow-hidden transition-all">
+      <div class="p-3 sm:px-6 flex items-center justify-between cursor-pointer hover:bg-slate-50/70" onclick="toggleMetricCollapse()">
+        <div class="flex items-center gap-2 sm:gap-3">
+          <span class="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center text-xs sm:text-sm font-semibold">
+            <i class="fa-solid fa-chart-column"></i>
+          </span>
+          <div>
+            <h2 class="text-xs sm:text-sm font-bold text-slate-900 flex items-center gap-1.5">
+              구역 핵심 요약 지표
+              <span class="text-[10px] sm:text-xs font-normal text-slate-500 hidden sm:inline" id="metricSubtitle">(실시간 집계)</span>
+            </h2>
+          </div>
+        </div>
+        <button type="button" class="text-[11px] sm:text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg border border-slate-200 flex items-center gap-1.5 transition">
+          <span id="metricToggleText">보기</span>
+          <i id="metricToggleIcon" class="fa-solid fa-chevron-down text-[10px]"></i>
+        </button>
+      </div>
+
+      <!-- 요약 통계 본문 (기본 hidden) -->
+      <div id="metricContent" class="px-3 pb-4 pt-1 sm:px-6 border-t border-slate-100 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-2 sm:gap-3 hidden">
+        <div class="bg-slate-50 rounded-xl p-2.5 sm:p-3 border border-slate-200/80">
+          <div class="text-[11px] sm:text-xs text-slate-500 font-medium flex items-center justify-between">
+            <span>이번 달 총 일정</span>
+            <i class="fa-solid fa-calendar-day text-blue-500"></i>
+          </div>
+          <div class="mt-0.5 sm:mt-1 text-xl sm:text-2xl font-bold text-slate-900" id="statTotalCount">0</div>
+          <div class="text-[10px] sm:text-[11px] text-slate-500 mt-0.5 truncate" id="statViewModeLabel">집계 기준</div>
+        </div>
+        <div class="bg-amber-50/60 rounded-xl p-2.5 sm:p-3 border border-amber-200/60">
+          <div class="text-[11px] sm:text-xs text-amber-700 font-medium flex items-center justify-between">
+            <span>심방</span>
+            <i class="fa-solid fa-mug-hot text-amber-600"></i>
+          </div>
+          <div class="mt-0.5 sm:mt-1 text-xl sm:text-2xl font-bold text-amber-900" id="statVisitCount">0</div>
+          <div class="text-[10px] sm:text-[11px] text-amber-600 mt-0.5">가정 및 심방 사역</div>
+        </div>
+        <div class="bg-blue-50/60 rounded-xl p-2.5 sm:p-3 border border-blue-200/60">
+          <div class="text-[11px] sm:text-xs text-blue-700 font-medium flex items-center justify-between">
+            <span>행사 / 구역</span>
+            <i class="fa-solid fa-flag text-blue-600"></i>
+          </div>
+          <div class="mt-0.5 sm:mt-1 text-xl sm:text-2xl font-bold text-blue-900" id="statEventCount">0</div>
+          <div class="text-[10px] sm:text-[11px] text-blue-600 mt-0.5">공동체 공식 행사</div>
+        </div>
+        <div class="bg-rose-50/60 rounded-xl p-2.5 sm:p-3 border border-rose-200/60">
+          <div class="text-[11px] sm:text-xs text-rose-700 font-medium flex items-center justify-between">
+            <span>생일</span>
+            <i class="fa-solid fa-cake-candles text-rose-500"></i>
+          </div>
+          <div class="mt-0.5 sm:mt-1 text-xl sm:text-2xl font-bold text-rose-900" id="statBirthdayCount">0</div>
+          <div class="text-[10px] sm:text-[11px] text-rose-500 mt-0.5">축하 및 기념</div>
+        </div>
+        <div class="bg-emerald-50/60 rounded-xl p-2.5 sm:p-3 border border-emerald-200/60 col-span-2 sm:col-span-1">
+          <div class="text-[11px] sm:text-xs text-emerald-700 font-medium flex items-center justify-between">
+            <span>개인 일정</span>
+            <i class="fa-solid fa-user-check text-emerald-600"></i>
+          </div>
+          <div class="mt-0.5 sm:mt-1 text-xl sm:text-2xl font-bold text-emerald-900" id="statPersonalCount">0</div>
+          <div class="text-[10px] sm:text-[11px] text-emerald-600 mt-0.5">개인 사역 및 알림</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. 구역원 일정 캘린더 메인 카드 -->
+    <section class="bg-white rounded-xl sm:rounded-2xl border border-slate-200 shadow-xs sm:shadow-sm p-3 sm:p-6 flex flex-col gap-3 sm:gap-5">
+      
+      <!-- 상단 헤더: 제목 + 범례 뱃지 -->
+      <div class="flex flex-col gap-2 pb-2.5 sm:pb-3 border-b border-slate-100">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-1.5 sm:gap-2">
+            <span class="text-xl sm:text-2xl">📅</span>
+            <h2 class="text-base sm:text-xl font-bold text-slate-900">구역원 일정 캘린더</h2>
+          </div>
+          <!-- 오늘 버튼 모바일 바로가기 -->
+          <button onclick="goToToday()" class="sm:hidden text-[11px] font-semibold px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg border border-slate-200 transition">
+            오늘
+          </button>
+        </div>
+        <p class="text-[11px] sm:text-sm text-slate-500 leading-normal">
+          일정 구분(개인=초록, 심방=주황, 행사=파랑, 생일=빨강)으로 관리됩니다.
+        </p>
+
+        <!-- 카테고리 칩 필터 (모바일 횡스크롤 지원) -->
+        <div class="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1 text-xs">
+          <button onclick="setCategoryFilter('ALL')" id="catFilter-ALL" class="shrink-0 px-2.5 py-1 rounded-full font-semibold border transition shadow-xs flex items-center gap-1 bg-slate-900 text-white border-slate-900 text-[11px] sm:text-xs">
+            전체 일정
+          </button>
+          <button onclick="setCategoryFilter('개인')" id="catFilter-개인" class="shrink-0 px-2.5 py-1 rounded-full font-semibold border transition shadow-xs flex items-center gap-1 bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100 text-[11px] sm:text-xs">
+            <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>개인
+          </button>
+          <button onclick="setCategoryFilter('심방')" id="catFilter-심방" class="shrink-0 px-2.5 py-1 rounded-full font-semibold border transition shadow-xs flex items-center gap-1 bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100 text-[11px] sm:text-xs">
+            <span class="w-2 h-2 rounded-full bg-amber-500 inline-block"></span>심방
+          </button>
+          <button onclick="setCategoryFilter('행사')" id="catFilter-행사" class="shrink-0 px-2.5 py-1 rounded-full font-semibold border transition shadow-xs flex items-center gap-1 bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100 text-[11px] sm:text-xs">
+            <span class="w-2 h-2 rounded-full bg-blue-500 inline-block"></span>행사
+          </button>
+          <button onclick="setCategoryFilter('생일')" id="catFilter-생일" class="shrink-0 px-2.5 py-1 rounded-full font-semibold border transition shadow-xs flex items-center gap-1 bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100 text-[11px] sm:text-xs">
+            <span class="w-2 h-2 rounded-full bg-rose-500 inline-block"></span>생일
+          </button>
+        </div>
+      </div>
+
+      <!-- 월 네비게이션 바 -->
+      <div class="flex items-center justify-between gap-2">
+        <button type="button" onclick="changeMonth(-1)" class="px-3 py-1.5 sm:px-4 sm:py-2 bg-slate-800 hover:bg-slate-900 text-white font-semibold rounded-xl text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-xs transition active:scale-95">
+          <i class="fa-solid fa-chevron-left text-[10px] sm:text-xs"></i>
+          <span>이전달</span>
+        </button>
+
+        <div class="flex items-center gap-2">
+          <h3 class="text-base sm:text-2xl font-extrabold text-slate-800 tracking-tight" id="calendarCurrentMonthLabel">
+            2026년 11월
+          </h3>
+          <button onclick="goToToday()" class="hidden sm:inline-block text-xs font-semibold px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg border border-slate-200 transition">
+            오늘
+          </button>
+        </div>
+
+        <button type="button" onclick="changeMonth(1)" class="px-3 py-1.5 sm:px-4 sm:py-2 bg-slate-800 hover:bg-slate-900 text-white font-semibold rounded-xl text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-xs transition active:scale-95">
+          <span>다음달</span>
+          <i class="fa-solid fa-chevron-right text-[10px] sm:text-xs"></i>
+        </button>
+      </div>
+
+      <!-- 간편 일정 등록 바 & 관리자 필터 -->
+      <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 p-2 sm:p-3 bg-slate-50/90 rounded-xl border border-slate-200/80">
+        <button onclick="openScheduleModal()" class="flex items-center gap-2 text-left text-xs sm:text-sm text-slate-700 hover:text-blue-600 transition py-1">
+          <span class="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs shrink-0 shadow-xs">
+            <i class="fa-solid fa-plus"></i>
+          </span>
+          <span class="font-bold text-slate-800">새 일정 등록</span>
+          <span class="text-[11px] text-slate-400 hidden lg:inline">날짜 칸을 터치해도 바로 등록됩니다.</span>
+        </button>
+
+        <div class="flex items-center gap-1.5 sm:gap-2 justify-between sm:justify-end">
+          <div id="adminMemberFilterContainer" class="flex-1 sm:flex-initial"></div>
+          <button onclick="openScheduleModal()" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-xs flex items-center gap-1 transition shrink-0 sm:hidden">
+            <i class="fa-solid fa-plus text-[10px]"></i>
+            <span>추가</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 캘린더 요일 헤더 -->
+      <div class="grid grid-cols-7 text-center font-bold text-xs sm:text-sm border-b border-slate-200 pb-1.5">
+        <div class="text-rose-600">일</div>
+        <div class="text-slate-700">월</div>
+        <div class="text-slate-700">화</div>
+        <div class="text-slate-700">수</div>
+        <div class="text-slate-700">목</div>
+        <div class="text-slate-700">금</div>
+        <div class="text-blue-600">토</div>
+      </div>
+
+      <!-- 캘린더 날짜 격자 그리드 -->
+      <div id="calendarGrid" class="grid grid-cols-7 gap-1 sm:gap-2">
+        <!-- JavaScript로 동적 렌더링 -->
+      </div>
+    </section>
+
+    <!-- 3. 관리자 전용 구성원 현황 섹션 (관리자에게만 노출되며, 일반 구성원은 다른 회원 확인 불가) -->
+    <section id="adminOnlyMemberSection" class="bg-white rounded-xl sm:rounded-2xl border border-slate-200 shadow-sm p-3.5 sm:p-5 hidden">
+      <div class="flex items-center justify-between mb-2 sm:mb-3">
+        <h4 class="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
+          <i class="fa-solid fa-user-shield text-indigo-600"></i>
+          [관리자] 구성원별 일정 필터
+        </h4>
+        <span class="text-[10px] sm:text-[11px] text-slate-400">클릭하여 해당 구역원 일정만 보기</span>
+      </div>
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2" id="memberColorListGrid">
+        <!-- 동적 렌더링 -->
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ==================== 푸터 ==================== -->
+  <footer class="bg-white border-t border-slate-200 mt-8 py-4 text-center text-xs text-slate-400">
+    <div class="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+      <span>지역 관리 시스템 (Regional Management Portal) &bull; 구역 및 사역 관리</span>
+      <div class="flex items-center gap-3 text-slate-500">
+        <button onclick="clearAllSchedules()" class="hover:text-rose-600 transition underline underline-offset-2">
+          모든 일정 데이터 비우기
+        </button>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ==================== 모달: 로그인 (예시 및 힌트 완전 제거) ==================== -->
+  <div id="loginModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 hidden">
+    <div class="bg-white rounded-t-3xl sm:rounded-3xl max-w-sm w-full shadow-2xl border border-slate-200 overflow-hidden transform transition-all animate-in fade-in duration-150">
+      <div class="bg-slate-900 px-5 py-4 sm:px-6 sm:py-5 text-white text-center">
+        <div class="w-10 h-10 sm:w-12 sm:h-12 bg-white/10 rounded-2xl mx-auto flex items-center justify-center text-lg sm:text-xl shadow-inner mb-2">
+          <i class="fa-solid fa-lock"></i>
+        </div>
+        <h3 class="text-base sm:text-lg font-bold">지역 관리 시스템 로그인</h3>
+        <p class="text-xs text-slate-400 mt-0.5">이름과 비밀번호를 입력해주세요.</p>
+      </div>
+
+      <div class="p-5 sm:p-6">
+        <form id="loginForm" onsubmit="handleLoginSubmit(event)" class="space-y-3 sm:space-y-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">이름</label>
+            <input type="text" id="loginName" required placeholder="이름을 입력하세요" class="w-full text-sm border border-slate-300 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500" autocomplete="off" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">비밀번호</label>
+            <input type="password" id="loginPassword" required placeholder="비밀번호를 입력하세요" class="w-full text-sm border border-slate-300 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+
+          <div id="loginErrorMsg" class="text-xs text-rose-600 font-medium hidden">
+            <i class="fa-solid fa-circle-exclamation mr-1"></i>이름 또는 비밀번호를 다시 확인해주세요.
+          </div>
+
+          <div class="pt-2 flex gap-2">
+            <button type="button" onclick="closeLoginModal()" id="loginCancelBtn" class="flex-1 py-2.5 border border-slate-300 text-slate-700 hover:bg-slate-100 font-semibold rounded-xl text-sm transition hidden">
+              취소
+            </button>
+            <button type="submit" class="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-sm shadow-md shadow-blue-500/25 transition">
+              로그인
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 모달: 일정 등록 및 수정 (모바일 최적화) ==================== -->
+  <div id="scheduleModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 hidden">
+    <div class="bg-white rounded-t-3xl sm:rounded-3xl max-w-lg w-full max-h-[92vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden transform transition-all">
+      
+      <!-- 모달 헤더 -->
+      <div class="px-5 py-3.5 sm:px-6 sm:py-4.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between shrink-0">
+        <div class="flex items-center gap-2 sm:gap-2.5">
+          <span class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs text-xs sm:text-sm" id="scheduleModalIcon">
+            <i class="fa-solid fa-calendar-plus"></i>
+          </span>
+          <div>
+            <h3 class="font-bold text-slate-900 text-sm sm:text-base" id="scheduleModalTitle">새 일정 등록</h3>
+            <p class="text-[11px] sm:text-xs text-slate-500" id="scheduleModalSubtitle">일정 구분과 내용을 입력해주세요.</p>
+          </div>
+        </div>
+        <button onclick="closeScheduleModal()" class="w-8 h-8 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 flex items-center justify-center transition">
+          <i class="fa-solid fa-xmark text-base"></i>
+        </button>
+      </div>
+
+      <!-- 모달 폼 바디 (스크롤 가능) -->
+      <form id="scheduleForm" onsubmit="handleScheduleFormSubmit(event)" class="p-4 sm:p-6 space-y-3.5 sm:space-y-4 overflow-y-auto">
+        <input type="hidden" id="editScheduleId" value="" />
+
+        <!-- 관리자인 경우만: 대상 작성자 지정 기능 -->
+        <div id="modalAuthorSelectSection" class="hidden">
+          <label class="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1.5">
+            <span class="text-indigo-600 font-semibold">[관리자 지정]</span> 등록 대상 구성원
+          </label>
+          <select id="scheduleAuthorSelect" class="w-full text-xs sm:text-sm bg-indigo-50/50 border border-indigo-200 rounded-xl px-3 py-2 sm:py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium">
+            <!-- 관리자 모달 시 동적 렌더링 -->
+          </select>
+        </div>
+
+        <!-- 일정 구분 (카테고리 라디오 버튼) -->
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1.5">일정 구분</label>
+          <div class="grid grid-cols-4 gap-1.5 sm:gap-2 text-xs font-semibold">
+            <label class="cursor-pointer">
+              <input type="radio" name="scheduleCategory" value="심방" class="peer sr-only" checked />
+              <div class="text-center py-1.5 sm:py-2 px-1 rounded-xl border border-slate-200 peer-checked:border-amber-500 peer-checked:bg-amber-50 peer-checked:text-amber-800 transition">
+                <span class="block text-sm sm:text-base mb-0.5">🍵</span>
+                <span class="text-[11px] sm:text-xs">심방</span>
+              </div>
+            </label>
+            <label class="cursor-pointer">
+              <input type="radio" name="scheduleCategory" value="개인" class="peer sr-only" />
+              <div class="text-center py-1.5 sm:py-2 px-1 rounded-xl border border-slate-200 peer-checked:border-emerald-500 peer-checked:bg-emerald-50 peer-checked:text-emerald-800 transition">
+                <span class="block text-sm sm:text-base mb-0.5">👤</span>
+                <span class="text-[11px] sm:text-xs">개인</span>
+              </div>
+            </label>
+            <label class="cursor-pointer">
+              <input type="radio" name="scheduleCategory" value="생일" class="peer sr-only" />
+              <div class="text-center py-1.5 sm:py-2 px-1 rounded-xl border border-slate-200 peer-checked:border-rose-500 peer-checked:bg-rose-50 peer-checked:text-rose-800 transition">
+                <span class="block text-sm sm:text-base mb-0.5">🎂</span>
+                <span class="text-[11px] sm:text-xs">생일</span>
+              </div>
+            </label>
+            <label class="cursor-pointer">
+              <input type="radio" name="scheduleCategory" value="행사" class="peer sr-only" />
+              <div class="text-center py-1.5 sm:py-2 px-1 rounded-xl border border-slate-200 peer-checked:border-blue-500 peer-checked:bg-blue-50 peer-checked:text-blue-800 transition">
+                <span class="block text-sm sm:text-base mb-0.5">🎉</span>
+                <span class="text-[11px] sm:text-xs">행사</span>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- 날짜 및 24시간제 시간 선택기 -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">날짜 <span class="text-rose-500">*</span></label>
+            <input type="date" id="scheduleDate" required class="w-full text-xs sm:text-sm border border-slate-300 rounded-xl px-3 py-2 sm:py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium" />
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">시간 (24시간제, 선택)</label>
+            <div class="flex items-center gap-1.5">
+              <select id="scheduleHour" class="flex-1 text-xs sm:text-sm border border-slate-300 rounded-xl px-2 py-2 sm:py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium bg-white">
+                <option value="">시 선택</option>
+              </select>
+              <span class="text-slate-400 font-bold">:</span>
+              <select id="scheduleMinute" class="flex-1 text-xs sm:text-sm border border-slate-300 rounded-xl px-2 py-2 sm:py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium bg-white">
+                <option value="">분 선택</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- 일정 제목 -->
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">일정 제목 <span class="text-rose-500">*</span></label>
+          <input type="text" id="scheduleTitle" placeholder="일정 제목을 입력하세요" required class="w-full text-xs sm:text-sm border border-slate-300 rounded-xl px-3 py-2 sm:py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+
+        <!-- 상세 내용 -->
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">상세 내용 (선택)</label>
+          <textarea id="scheduleDescription" rows="2" placeholder="메모, 장소, 비고 사항을 입력하세요." class="w-full text-xs sm:text-sm border border-slate-300 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"></textarea>
+        </div>
+
+        <!-- 액션 버튼 영역 -->
+        <div class="pt-2 flex items-center justify-between gap-2 pb-2 sm:pb-0">
+          <button type="button" id="deleteScheduleBtn" onclick="deleteCurrentEditingSchedule()" class="hidden px-3 py-2 text-rose-600 bg-rose-50 hover:bg-rose-100 font-semibold rounded-xl text-xs sm:text-sm transition">
+            <i class="fa-regular fa-trash-can mr-1"></i>삭제
+          </button>
+          <div class="flex items-center gap-2 ml-auto">
+            <button type="button" onclick="closeScheduleModal()" class="px-3.5 py-2 border border-slate-300 text-slate-700 hover:bg-slate-100 font-semibold rounded-xl text-xs sm:text-sm transition">
+              취소
+            </button>
+            <button type="submit" class="px-4 py-2 sm:px-5 sm:py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs sm:text-sm shadow-md shadow-blue-500/25 transition">
+              저장하기
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ==================== 모달: 일정 상세 팝업 (모바일 최적화) ==================== -->
+  <div id="detailModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 hidden">
+    <div class="bg-white rounded-t-3xl sm:rounded-3xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden transform transition-all">
+      <div id="detailHeaderColorBar" class="h-2.5 w-full bg-blue-500"></div>
+      <div class="p-4 sm:p-6">
+        <div class="flex items-start justify-between gap-3">
+          <div class="flex items-center gap-2" id="detailCategoryBadge"></div>
+          <button onclick="closeDetailModal()" class="w-7 h-7 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition">
+            <i class="fa-solid fa-xmark text-base"></i>
+          </button>
+        </div>
+
+        <h3 class="text-base sm:text-lg font-bold text-slate-900 mt-2 break-all" id="detailTitleText">일정 제목</h3>
+
+        <div class="mt-3 sm:mt-4 space-y-2 text-xs sm:text-sm text-slate-600 bg-slate-50 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-slate-100">
+          <div class="flex items-center gap-2">
+            <i class="fa-regular fa-calendar text-slate-400 w-4"></i>
+            <span class="font-medium text-slate-800" id="detailDateText"></span>
+          </div>
+          <div class="flex items-center gap-2" id="detailTimeRow">
+            <i class="fa-regular fa-clock text-slate-400 w-4"></i>
+            <span id="detailTimeText"></span>
+          </div>
+          <div class="flex items-center gap-2" id="detailAuthorRowWrapper">
+            <i class="fa-regular fa-user text-slate-400 w-4"></i>
+            <span id="detailAuthorBadge"></span>
+          </div>
+        </div>
+
+        <div class="mt-3 sm:mt-4">
+          <h4 class="text-[11px] sm:text-xs font-bold text-slate-500 uppercase">상세 내용</h4>
+          <p class="text-xs sm:text-sm text-slate-700 mt-1 whitespace-pre-wrap leading-relaxed bg-white border border-slate-100 p-2.5 sm:p-3 rounded-xl min-h-[50px] break-all" id="detailDescText">
+            등록된 내용이 없습니다.
+          </p>
+        </div>
+
+        <div class="mt-5 flex items-center justify-between gap-2 pb-1 sm:pb-0" id="detailModalActionButtons"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 모달: 일정 등록 및 수정 ==================== -->
+  <div id="scheduleModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 hidden">
+    <div class="bg-white rounded-3xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden transform transition-all animate-in fade-in zoom-in-95 duration-150">
+      
+      <!-- 모달 헤더 -->
+      <div class="px-6 py-4.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+        <div class="flex items-center gap-2.5">
+          <span class="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs text-sm" id="scheduleModalIcon">
+            <i class="fa-solid fa-calendar-plus"></i>
+          </span>
+          <div>
+            <h3 class="font-bold text-slate-900 text-base" id="scheduleModalTitle">새 일정 등록</h3>
+            <p class="text-xs text-slate-500" id="scheduleModalSubtitle">일정 구분과 내용을 입력해주세요.</p>
+          </div>
+        </div>
+        <button onclick="closeScheduleModal()" class="w-8 h-8 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 flex items-center justify-center transition">
+          <i class="fa-solid fa-xmark text-base"></i>
+        </button>
+      </div>
+
+      <!-- 모달 폼 바디 -->
+      <form id="scheduleForm" onsubmit="handleScheduleFormSubmit(event)" class="p-6 space-y-4">
+        <input type="hidden" id="editScheduleId" value="" />
+
+        <!-- 관리자인 경우만: 대상 작성자 지정 기능 -->
+        <div id="modalAuthorSelectSection" class="hidden">
+          <label class="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
+            <span class="text-indigo-600 font-semibold">[관리자 지정]</span> 등록 대상 구성원
+          </label>
+          <select id="scheduleAuthorSelect" class="w-full text-sm bg-indigo-50/50 border border-indigo-200 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium">
+            <!-- 관리자 모달 시 동적 렌더링 -->
+          </select>
+        </div>
+
+        <!-- 일정 구분 (카테고리 라디오 버튼) -->
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-2">일정 구분</label>
+          <div class="grid grid-cols-4 gap-2 text-xs font-semibold">
+            <label class="cursor-pointer">
+              <input type="radio" name="scheduleCategory" value="심방" class="peer sr-only" checked />
+              <div class="text-center py-2 px-1 rounded-xl border border-slate-200 peer-checked:border-amber-500 peer-checked:bg-amber-50 peer-checked:text-amber-800 transition">
+                <span class="block text-base mb-0.5">🍵</span>
+                심방
+              </div>
+            </label>
+            <label class="cursor-pointer">
+              <input type="radio" name="scheduleCategory" value="개인" class="peer sr-only" />
+              <div class="text-center py-2 px-1 rounded-xl border border-slate-200 peer-checked:border-emerald-500 peer-checked:bg-emerald-50 peer-checked:text-emerald-800 transition">
+                <span class="block text-base mb-0.5">👤</span>
+                개인
+              </div>
+            </label>
+            <label class="cursor-pointer">
+              <input type="radio" name="scheduleCategory" value="생일" class="peer sr-only" />
+              <div class="text-center py-2 px-1 rounded-xl border border-slate-200 peer-checked:border-rose-500 peer-checked:bg-rose-50 peer-checked:text-rose-800 transition">
+                <span class="block text-base mb-0.5">🎂</span>
+                생일
+              </div>
+            </label>
+            <label class="cursor-pointer">
+              <input type="radio" name="scheduleCategory" value="행사" class="peer sr-only" />
+              <div class="text-center py-2 px-1 rounded-xl border border-slate-200 peer-checked:border-blue-500 peer-checked:bg-blue-50 peer-checked:text-blue-800 transition">
+                <span class="block text-base mb-0.5">🎉</span>
+                행사
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- 날짜 및 24시간제 시간 선택기 -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">날짜 <span class="text-rose-500">*</span></label>
+            <input type="date" id="scheduleDate" required class="w-full text-sm border border-slate-300 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium" />
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">시간 (24시간제, 선택)</label>
+            <div class="flex items-center gap-1.5">
+              <select id="scheduleHour" class="flex-1 text-sm border border-slate-300 rounded-xl px-2.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium bg-white">
+                <option value="">시 선택</option>
+                <!-- 00시부터 23시까지 동적 생성 -->
+              </select>
+              <span class="text-slate-400 font-bold">:</span>
+              <select id="scheduleMinute" class="flex-1 text-sm border border-slate-300 rounded-xl px-2.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium bg-white">
+                <option value="">분 선택</option>
+                <!-- 00분부터 55분까지 동적 생성 -->
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- 일정 제목 -->
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">일정 제목 <span class="text-rose-500">*</span></label>
+          <input type="text" id="scheduleTitle" placeholder="일정 제목을 입력하세요" required class="w-full text-sm border border-slate-300 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+
+        <!-- 상세 내용 -->
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">상세 내용 (선택)</label>
+          <textarea id="scheduleDescription" rows="3" placeholder="메모, 장소, 비고 사항을 입력하세요." class="w-full text-sm border border-slate-300 rounded-xl px-3.5 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"></textarea>
+        </div>
+
+        <!-- 액션 버튼 영역 -->
+        <div class="pt-2 flex items-center justify-between gap-3">
+          <button type="button" id="deleteScheduleBtn" onclick="deleteCurrentEditingSchedule()" class="hidden px-3.5 py-2.5 text-rose-600 bg-rose-50 hover:bg-rose-100 font-semibold rounded-xl text-sm transition">
+            <i class="fa-regular fa-trash-can mr-1"></i>삭제
+          </button>
+          <div class="flex items-center gap-2 ml-auto">
+            <button type="button" onclick="closeScheduleModal()" class="px-4 py-2.5 border border-slate-300 text-slate-700 hover:bg-slate-100 font-semibold rounded-xl text-sm transition">
+              취소
+            </button>
+            <button type="submit" class="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-sm shadow-md shadow-blue-500/25 transition">
+              저장하기
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ==================== 모달: 일정 상세 팝업 ==================== -->
+  <div id="detailModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 hidden">
+    <div class="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden transform transition-all animate-in fade-in zoom-in-95 duration-150">
+      <div id="detailHeaderColorBar" class="h-3 w-full bg-blue-500"></div>
+      <div class="p-6">
+        <div class="flex items-start justify-between gap-3">
+          <div class="flex items-center gap-2" id="detailCategoryBadge"></div>
+          <button onclick="closeDetailModal()" class="text-slate-400 hover:text-slate-600">
+            <i class="fa-solid fa-xmark text-lg"></i>
+          </button>
+        </div>
+
+        <h3 class="text-lg font-bold text-slate-900 mt-2.5" id="detailTitleText">일정 제목</h3>
+
+        <div class="mt-4 space-y-2.5 text-xs sm:text-sm text-slate-600 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+          <div class="flex items-center gap-2">
+            <i class="fa-regular fa-calendar text-slate-400 w-4"></i>
+            <span class="font-medium text-slate-800" id="detailDateText"></span>
+          </div>
+          <div class="flex items-center gap-2" id="detailTimeRow">
+            <i class="fa-regular fa-clock text-slate-400 w-4"></i>
+            <span id="detailTimeText"></span>
+          </div>
+          <div class="flex items-center gap-2" id="detailAuthorRowWrapper">
+            <i class="fa-regular fa-user text-slate-400 w-4"></i>
+            <span id="detailAuthorBadge"></span>
+          </div>
+        </div>
+
+        <div class="mt-4">
+          <h4 class="text-xs font-bold text-slate-500 uppercase">상세 내용</h4>
+          <p class="text-xs sm:text-sm text-slate-700 mt-1 whitespace-pre-wrap leading-relaxed bg-white border border-slate-100 p-3 rounded-xl min-h-[60px]" id="detailDescText">
+            등록된 내용이 없습니다.
+          </p>
+        </div>
+
+        <div class="mt-6 flex items-center justify-between gap-2" id="detailModalActionButtons"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 토스트 알림창 -->
+  <div id="toastMessage" class="fixed bottom-6 right-6 z-50 bg-slate-900 text-white text-xs font-semibold px-4 py-3 rounded-xl shadow-lg border border-slate-700 transform translate-y-10 opacity-0 pointer-events-none transition duration-200 flex items-center gap-2">
+    <i class="fa-solid fa-check text-emerald-400"></i>
+    <span id="toastText">작업이 완료되었습니다.</span>
+  </div>
+
+  <!-- ==================== 자바스크립트 로직 ==================== -->
+  <script>
+    /* ----------------------------------------------------
+       1. 9인 회원 명부 데이터 및 9색 테마 매핑
+       (관리자 2명: 곽도현, 김가현 - 비밀번호: 380401)
+       (일반 구성원: 비밀번호: 1111)
+       ---------------------------------------------------- */
+    const MEMBERS = [
+      {
+        id: "mem_1",
+        name: "이여진",
+        password: "1111",
+        district: "1구역",
+        position: "구역장",
+        role: "구성원",
+        colorTheme: { bg: "#EFF6FF", border: "#BFDBFE", text: "#1E40AF", dot: "#3B82F6" } // Blue
+      },
+      {
+        id: "mem_2",
+        name: "김명주",
+        password: "1111",
+        district: "2구역",
+        position: "구역장",
+        role: "구성원",
+        colorTheme: { bg: "#FFFBEB", border: "#FDE68A", text: "#B45309", dot: "#F59E0B" } // Amber
+      },
+      {
+        id: "mem_3",
+        name: "김선화",
+        password: "1111",
+        district: "3구역",
+        position: "구역장",
+        role: "구성원",
+        colorTheme: { bg: "#ECFDF5", border: "#A7F3D0", text: "#047857", dot: "#10B981" } // Emerald
+      },
+      {
+        id: "mem_4",
+        name: "김가영",
+        password: "1111",
+        district: "4구역",
+        position: "구역장",
+        role: "구성원",
+        colorTheme: { bg: "#F5F3FF", border: "#DDD6FE", text: "#6D28D9", dot: "#8B5CF6" } // Purple
+      },
+      {
+        id: "mem_5",
+        name: "조지인",
+        password: "1111",
+        district: "5구역",
+        position: "구역장",
+        role: "구성원",
+        colorTheme: { bg: "#FFF1F2", border: "#FECDD3", text: "#BE123C", dot: "#F43F5E" } // Rose
+      },
+      {
+        id: "mem_6",
+        name: "곽도현",
+        password: "380401",
+        district: "6구역",
+        position: "구역장",
+        role: "관리자",
+        colorTheme: { bg: "#EEF2FF", border: "#C7D2FE", text: "#4338CA", dot: "#6366F1" } // Indigo
+      },
+      {
+        id: "mem_7",
+        name: "윤재원",
+        password: "1111",
+        district: "7구역",
+        position: "구역장",
+        role: "구성원",
+        colorTheme: { bg: "#F0FDFA", border: "#99F6E4", text: "#0F766E", dot: "#14B8A6" } // Teal
+      },
+      {
+        id: "mem_8",
+        name: "최윤수",
+        password: "1111",
+        district: "8구역",
+        position: "구역장",
+        role: "구성원",
+        colorTheme: { bg: "#FFF7ED", border: "#FFEDD5", text: "#C2410C", dot: "#F97316" } // Orange
+      },
+      {
+        id: "mem_9",
+        name: "김가현",
+        password: "380401",
+        district: "9구역",
+        position: "관리자",
+        role: "관리자",
+        colorTheme: { bg: "#FAF5FF", border: "#E9D5FF", text: "#7E22CE", dot: "#A855F7" } // Violet
+      }
+    ];
+
+    /* ----------------------------------------------------
+       2. 상태 관리 (현재 사용자, 날짜, 필터) & 영구 자동 저장
+       ---------------------------------------------------- */
+    let currentUser = null;
+    let currentYear = 2026;
+    let currentMonth = 11; // 1 ~ 12
+    let activeCategoryFilter = "ALL";
+    let adminSelectedMemberFilter = "ALL"; // 관리자 전용: 특정 회원 필터링
+    let isMetricOpen = false;
+
+    // 코드 수정 및 리로드 시에도 영구 유지되는 스토리지 키
+    const SCHEDULES_STORAGE_KEY = "regional_mgmt_schedules_permanent_v1";
+    const SESSION_USER_KEY = "regional_mgmt_logged_user_id";
+
+    // Firebase Firestore 인스턴스 (설정 시 실시간 동기화)
+    let db = null;
+    let isFirebaseReady = false;
+    let cachedSchedules = [];
+
+    function initFirebase() {
+      try {
+        if (window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.projectId && window.FIREBASE_CONFIG.projectId !== "YOUR_PROJECT_ID") {
+          if (!firebase.apps.length) {
+            firebase.initializeApp(window.FIREBASE_CONFIG);
+          }
+          db = firebase.firestore();
+          isFirebaseReady = true;
+          console.log("[Firebase] Firestore 활성화 완료");
+
+          // Firestore 실시간 리스너 구독
+          db.collection("schedules").onSnapshot((snapshot) => {
+            const list = [];
+            snapshot.forEach(doc => {
+              list.push({ id: doc.id, ...doc.data() });
+            });
+            cachedSchedules = list;
+            // 로컬 스토리지 캐시 동기화
+            try {
+              localStorage.setItem(SCHEDULES_STORAGE_KEY, JSON.stringify(list));
+            } catch (err) {}
+            renderCalendar();
+            updateMetrics();
+          }, (error) => {
+            console.warn("[Firebase] 실시간 동기화 오류 (로컬 모드 유지):", error);
+          });
+        } else {
+          console.log("[Storage] Firebase 설정 미입력으로 로컬 스토리지 모드로 작동합니다.");
+        }
+      } catch (e) {
+        console.warn("[Firebase] 초기화 실패 (로컬 스토리지 대체):", e);
+      }
+    }
+
+    function getStoredSchedules() {
+      if (isFirebaseReady && cachedSchedules.length > 0) {
+        return cachedSchedules;
+      }
+      try {
+        const stored = localStorage.getItem(SCHEDULES_STORAGE_KEY);
+        if (!stored) return cachedSchedules;
+        const parsed = JSON.parse(stored);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (e) {
+        console.error("데이터 로드 중 오류:", e);
+        return cachedSchedules;
+      }
+    }
+
+    function saveSchedules(schedules) {
+      cachedSchedules = schedules;
+      try {
+        localStorage.setItem(SCHEDULES_STORAGE_KEY, JSON.stringify(schedules));
+      } catch (e) {
+        console.error("데이터 저장 중 오류:", e);
+      }
+    }
+
+    // 일정 추가/수정 비동기 저장
+    async function syncScheduleToCloud(item) {
+      if (isFirebaseReady && db) {
+        try {
+          await db.collection("schedules").doc(item.id).set(item, { merge: true });
+        } catch (e) {
+          console.error("Firebase 일정 저장 오류:", e);
+        }
+      }
+    }
+
+    // 일정 삭제 비동기 동기화
+    async function deleteScheduleFromCloud(id) {
+      if (isFirebaseReady && db) {
+        try {
+          await db.collection("schedules").doc(id).delete();
+        } catch (e) {
+          console.error("Firebase 일정 삭제 오류:", e);
+        }
+      }
+    }
+
+    function clearAllSchedules() {
+      if (confirm("등록된 모든 일정 데이터를 초기화하시겠습니까?")) {
+        localStorage.removeItem(SCHEDULES_STORAGE_KEY);
+        cachedSchedules = [];
+        if (isFirebaseReady && db) {
+          db.collection("schedules").get().then(snapshot => {
+            snapshot.forEach(doc => doc.ref.delete());
+          }).catch(console.error);
+        }
+        renderCalendar();
+        updateMetrics();
+        showToast("모든 일정이 초기화되었습니다.");
+      }
+    }
+
+    /* ----------------------------------------------------
+       3. 사용자 세션 & 인증 로직
+       ---------------------------------------------------- */
+    function initUserSession() {
+      const savedUserId = localStorage.getItem(SESSION_USER_KEY);
+      const found = MEMBERS.find(m => m.id === savedUserId);
+      if (found) {
+        currentUser = found;
+        closeLoginModal();
+        renderApp();
+      } else {
+        openLoginModal(false);
+      }
+    }
+
+    function openLoginModal(canCancel = false) {
+      const modal = document.getElementById("loginModal");
+      const cancelBtn = document.getElementById("loginCancelBtn");
+      const errBox = document.getElementById("loginErrorMsg");
+      
+      errBox.classList.add("hidden");
+      document.getElementById("loginName").value = "";
+      document.getElementById("loginPassword").value = "";
+
+      if (canCancel && currentUser) {
+        cancelBtn.classList.remove("hidden");
+      } else {
+        cancelBtn.classList.add("hidden");
+      }
+      modal.classList.remove("hidden");
+    }
+
+    function closeLoginModal() {
+      document.getElementById("loginModal").classList.add("hidden");
+    }
+
+    function handleLoginSubmit(event) {
+      event.preventDefault();
+      const nameInput = document.getElementById("loginName").value.trim();
+      const pwInput = document.getElementById("loginPassword").value.trim();
+      const errBox = document.getElementById("loginErrorMsg");
+
+      const member = MEMBERS.find(m => m.name === nameInput && m.password === pwInput);
+      if (member) {
+        currentUser = member;
+        localStorage.setItem(SESSION_USER_KEY, member.id);
+        adminSelectedMemberFilter = "ALL";
+        closeLoginModal();
+        renderApp();
+        showToast(`${currentUser.name} (${currentUser.district}) 님 환영합니다.`);
+      } else {
+        errBox.classList.remove("hidden");
+      }
+    }
+
+    function logoutUser() {
+      localStorage.removeItem(SESSION_USER_KEY);
+      currentUser = null;
+      renderApp();
+      openLoginModal(false);
+    }
+
+    /* ----------------------------------------------------
+       4. 상단 핵심 요약 지표 접기/펼치기
+       ---------------------------------------------------- */
+    function toggleMetricCollapse() {
+      isMetricOpen = !isMetricOpen;
+      const content = document.getElementById("metricContent");
+      const text = document.getElementById("metricToggleText");
+      const icon = document.getElementById("metricToggleIcon");
+
+      if (isMetricOpen) {
+        content.classList.remove("hidden");
+        text.innerText = "닫기";
+        icon.className = "fa-solid fa-chevron-up text-[10px]";
+      } else {
+        content.classList.add("hidden");
+        text.innerText = "보기";
+        icon.className = "fa-solid fa-chevron-down text-[10px]";
+      }
+    }
+
+    function updateMetrics() {
+      if (!currentUser) return;
+      const schedules = getStoredSchedules();
+      const monthPrefix = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
+
+      // 현재 선택된 필터 및 권한에 부합하는 이번 달 일정
+      const currentMonthSchedules = schedules.filter(item => {
+        if (!item.date || !item.date.startsWith(monthPrefix)) return false;
+        if (currentUser.role === "관리자") {
+          if (adminSelectedMemberFilter !== "ALL" && item.authorId !== adminSelectedMemberFilter) {
+            return false;
+          }
+          return true;
+        } else {
+          return item.authorId === currentUser.id;
+        }
+      });
+
+      const total = currentMonthSchedules.length;
+      const visit = currentMonthSchedules.filter(s => s.category === "심방").length;
+      const event = currentMonthSchedules.filter(s => s.category === "행사" || s.category === "구역").length;
+      const bday = currentMonthSchedules.filter(s => s.category === "생일").length;
+      const personal = currentMonthSchedules.filter(s => s.category === "개인" || s.category === "기타").length;
+
+      const elTotal = document.getElementById("statTotalCount");
+      const elVisit = document.getElementById("statVisitCount");
+      const elEvent = document.getElementById("statEventCount");
+      const elBday = document.getElementById("statBirthdayCount");
+      const elPersonal = document.getElementById("statPersonalCount");
+      const elMode = document.getElementById("statViewModeLabel");
+
+      if (elTotal) elTotal.innerText = total;
+      if (elVisit) elVisit.innerText = visit;
+      if (elEvent) elEvent.innerText = event;
+      if (elBday) elBday.innerText = bday;
+      if (elPersonal) elPersonal.innerText = personal;
+      if (elMode) {
+        if (currentUser.role === "관리자") {
+          elMode.innerText = adminSelectedMemberFilter === "ALL" ? "전체 구역원 통합" : "선택 구역원 기준";
+        } else {
+          elMode.innerText = `${currentUser.name} 님 기준`;
+        }
+      }
+    }
+
+    /* ----------------------------------------------------
+       5. 캘린더 네비게이션 & 필터링
+       ---------------------------------------------------- */
+    function changeMonth(delta) {
+      currentMonth += delta;
+      if (currentMonth > 12) {
+        currentMonth = 1;
+        currentYear++;
+      } else if (currentMonth < 1) {
+        currentMonth = 12;
+        currentYear--;
+      }
+      renderCalendar();
+      updateMetrics();
+    }
+
+    function goToToday() {
+      currentYear = 2026;
+      currentMonth = 11;
+      renderCalendar();
+      updateMetrics();
+    }
+
+    function setCategoryFilter(category) {
+      activeCategoryFilter = category;
+      const categories = ['ALL', '개인', '심방', '행사', '생일'];
+      categories.forEach(cat => {
+        const btn = document.getElementById(`catFilter-${cat}`);
+        if (!btn) return;
+        if (cat === category) {
+          btn.className = "px-3 py-1.5 rounded-full font-semibold border transition shadow-xs flex items-center gap-1.5 bg-slate-900 text-white border-slate-900";
+        } else {
+          btn.className = "px-3 py-1.5 rounded-full font-semibold border transition shadow-xs flex items-center gap-1.5 bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100";
+        }
+      });
+      renderCalendar();
+    }
+
+    function handleAdminFilterChange(val) {
+      adminSelectedMemberFilter = val;
+      renderHeader();
+      renderCalendar();
+      updateMetrics();
+    }
+
+    /* ----------------------------------------------------
+       6. 캘린더 메인 렌더링 (모바일 셀 및 패딩 최적화)
+       ---------------------------------------------------- */
+    function renderCalendar() {
+      document.getElementById("calendarCurrentMonthLabel").innerText = `${currentYear}년 ${currentMonth}월`;
+      const grid = document.getElementById("calendarGrid");
+      grid.innerHTML = "";
+
+      if (!currentUser) return;
+
+      const schedules = getStoredSchedules();
+      const firstDay = new Date(currentYear, currentMonth - 1, 1).getDay();
+      const totalDays = new Date(currentYear, currentMonth, 0).getDate();
+
+      // 이전 달 빈 칸
+      for (let i = 0; i < firstDay; i++) {
+        const emptyCell = document.createElement("div");
+        emptyCell.className = "calendar-cell-min-h bg-slate-100/30 rounded-xl sm:rounded-2xl border border-dashed border-slate-200/60 p-1 opacity-30";
+        grid.appendChild(emptyCell);
+      }
+
+      // 현재 달 날짜 셀 생성
+      for (let day = 1; day <= totalDays; day++) {
+        const dayString = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const dayOfWeek = (firstDay + day - 1) % 7;
+        const isToday = (currentYear === 2026 && currentMonth === 11 && day === 22);
+
+        const cell = document.createElement("div");
+        cell.className = `calendar-cell-min-h bg-white rounded-xl sm:rounded-2xl border p-1 sm:p-2 flex flex-col justify-between transition-all hover:border-blue-400 hover:shadow-xs active:bg-slate-50 cursor-pointer overflow-hidden ${
+          isToday ? 'border-2 border-blue-600 bg-blue-50/15' : 'border-slate-200/90'
+        }`;
+
+        cell.onclick = () => {
+          openScheduleModal(dayString);
+        };
+
+        // 상단 날짜 숫자 및 '오늘' 배지
+        const topRow = document.createElement("div");
+        topRow.className = "flex items-center justify-between mb-0.5 sm:mb-1.5";
+
+        let dayColorClass = "text-slate-800";
+        if (dayOfWeek === 0) dayColorClass = "text-rose-600";
+        if (dayOfWeek === 6) dayColorClass = "text-blue-600";
+
+        let todayBadgeHtml = "";
+        if (isToday) {
+          todayBadgeHtml = `<span class="bg-rose-500 text-white font-extrabold text-[8px] sm:text-[10px] px-1 sm:px-1.5 py-0.2 rounded-full leading-tight shrink-0">오늘</span>`;
+        }
+
+        topRow.innerHTML = `
+          <span class="text-xs sm:text-base font-extrabold ${dayColorClass}">${day}</span>
+          ${todayBadgeHtml}
+        `;
+        cell.appendChild(topRow);
+
+        // 일정 컨테이너
+        const itemsContainer = document.createElement("div");
+        itemsContainer.className = "flex flex-col gap-0.5 sm:gap-1 w-full overflow-hidden";
+
+        // 권한에 따른 일정 필터링
+        const daySchedules = schedules.filter(item => {
+          if (item.date !== dayString) return false;
+          if (activeCategoryFilter !== "ALL" && item.category !== activeCategoryFilter) return false;
+
+          if (currentUser.role === "관리자") {
+            if (adminSelectedMemberFilter !== "ALL" && item.authorId !== adminSelectedMemberFilter) {
+              return false;
+            }
+            return true;
+          } else {
+            return item.authorId === currentUser.id;
+          }
+        });
+
+        daySchedules.sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99"));
+
+        daySchedules.forEach(item => {
+          const author = MEMBERS.find(m => m.id === item.authorId) || {
+            name: "알 수 없음",
+            district: "미지정",
+            position: "",
+            colorTheme: { bg: "#f1f5f9", border: "#cbd5e1", text: "#475569", dot: "#94a3b8" }
+          };
+          const badgeElem = createScheduleBadgeElement(item, author);
+          itemsContainer.appendChild(badgeElem);
+        });
+
+        cell.appendChild(itemsContainer);
+        grid.appendChild(cell);
+      }
+    }
+
+    /* ----------------------------------------------------
+       8. 일정 배지 생성기 (스마트폰 최적화: 유동 비율 및 잘림 방지)
+       ---------------------------------------------------- */
+    function createScheduleBadgeElement(item, author) {
+      const badge = document.createElement("div");
+
+      let catIcon = "📌";
+      let catText = item.category || "일정";
+      let bgClass = "bg-slate-50 border-slate-200 text-slate-800 hover:border-slate-300";
+
+      if (item.category === "생일") {
+        catIcon = "🎂";
+        bgClass = "bg-rose-50 border-rose-200 text-rose-900";
+      } else if (item.category === "심방") {
+        catIcon = "🍵";
+        bgClass = "bg-amber-50 border-amber-200 text-amber-900";
+      } else if (item.category === "행사") {
+        catIcon = "🎉";
+        bgClass = "bg-blue-50 border-blue-200 text-blue-900";
+      } else if (item.category === "개인") {
+        catIcon = "👤";
+        bgClass = "bg-emerald-50 border-emerald-200 text-emerald-900";
+      }
+
+      const isAdminViewingAll = (currentUser.role === '관리자' && adminSelectedMemberFilter === 'ALL');
+
+      badge.className = `w-full text-left p-1 sm:p-1.5 rounded-lg sm:rounded-xl border text-[10px] sm:text-xs font-semibold flex flex-col gap-0.5 transition hover:shadow-xs cursor-pointer ${bgClass}`;
+      badge.title = `[${item.category}] ${item.title}${item.time ? ' (' + item.time + ')' : ''}`;
+
+      badge.onclick = (e) => {
+        e.stopPropagation();
+        openDetailModal(item, author);
+      };
+
+      // 상단 메타 바: 모바일에서는 공간 절약을 위해 유연하게 축약
+      let authorTagHtml = "";
+      if (isAdminViewingAll) {
+        authorTagHtml = `
+          <span class="inline-flex items-center gap-0.5 sm:gap-1 text-[9px] sm:text-[10px] px-1 sm:px-1.5 py-0.2 rounded font-bold shrink-0 border leading-none" style="background-color: ${author.colorTheme.bg}; color: ${author.colorTheme.text}; border-color: ${author.colorTheme.border}">
+            <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background-color: ${author.colorTheme.dot}"></span>
+            <span class="truncate max-w-[45px] sm:max-w-none">${author.name}</span>
+          </span>
+        `;
+      } else {
+        authorTagHtml = `
+          <span class="inline-flex items-center gap-0.5 text-[9px] sm:text-[10px] text-slate-500 font-medium">
+            <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background-color: ${author.colorTheme.dot}"></span>
+            <span class="hidden xs:inline">${catText}</span>
+          </span>
+        `;
+      }
+
+      let timeTagHtml = "";
+      if (item.time) {
+        timeTagHtml = `<span class="text-[9px] sm:text-[10px] text-slate-400 font-normal shrink-0 ml-auto hidden sm:inline">${item.time}</span>`;
+      }
+
+      badge.innerHTML = `
+        <div class="flex items-center gap-1 w-full overflow-hidden leading-tight">
+          <span class="shrink-0 text-[10px] sm:text-[11px] leading-none">${catIcon}</span>
+          ${authorTagHtml}
+          ${timeTagHtml}
+        </div>
+        <div class="schedule-title-clamp text-[10px] sm:text-xs font-bold text-slate-800 tracking-tight pl-0.5 mt-0.5">
+          ${escapeHtml(item.title)}
+        </div>
+      `;
+
+      return badge;
+    }
+
+    /* ----------------------------------------------------
+       9. 헤더 및 관리자 권한 분기 렌더링 (모바일 반응형 최적화)
+       ---------------------------------------------------- */
+    function renderHeader() {
+      const headerSection = document.getElementById("headerUserSection");
+      if (!currentUser) {
+        headerSection.innerHTML = `
+          <button onclick="openLoginModal(true)" class="px-3 py-1.5 sm:px-4 sm:py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition">
+            로그인
+          </button>
+        `;
+        return;
+      }
+
+      const isAdmin = currentUser.role === "관리자";
+      const roleBadge = isAdmin
+        ? `<span class="px-1.5 py-0.2 rounded-full text-[10px] sm:text-xs font-extrabold bg-indigo-100 text-indigo-700 border border-indigo-300">관리자</span>`
+        : `<span class="px-1.5 py-0.2 rounded-full text-[10px] sm:text-xs font-semibold bg-emerald-100 text-emerald-700 border border-emerald-300">구역원</span>`;
+
+      headerSection.innerHTML = `
+        <div class="flex items-center gap-1.5 sm:gap-2">
+          <div class="flex items-center gap-1.5 sm:gap-2 bg-slate-100/90 pl-2 pr-2.5 sm:pl-2.5 sm:pr-3 py-1 rounded-xl sm:rounded-2xl border border-slate-200">
+            <span class="w-6 h-6 sm:w-7 sm:h-7 rounded-lg sm:rounded-xl flex items-center justify-center font-bold text-[11px] sm:text-xs text-white shadow-2xs shrink-0" style="background-color: ${currentUser.colorTheme.dot}">
+              ${currentUser.name[0]}
+            </span>
+            <div class="text-left leading-tight">
+              <div class="flex items-center gap-1">
+                <span class="text-xs sm:text-sm font-bold text-slate-800">${currentUser.name}</span>
+                ${roleBadge}
+              </div>
+              <p class="text-[9px] sm:text-[10px] text-slate-500">${currentUser.district}</p>
+            </div>
+          </div>
+
+          <!-- 로그아웃 버튼 -->
+          <button onclick="logoutUser()" title="로그아웃" class="px-2.5 py-1.5 sm:px-3 sm:py-1.5 bg-white border border-slate-300 hover:border-slate-400 text-slate-700 text-xs font-semibold rounded-xl transition shadow-2xs hover:bg-slate-50 flex items-center gap-1">
+            <i class="fa-solid fa-arrow-right-from-bracket text-slate-400 text-xs"></i>
+            <span class="hidden sm:inline">로그아웃</span>
+          </button>
+        </div>
+      `;
+
+      // 관리자 필터 컨테이너
+      const adminFilterContainer = document.getElementById("adminMemberFilterContainer");
+      if (isAdmin) {
+        adminFilterContainer.innerHTML = `
+          <div class="flex items-center gap-1 bg-white border border-slate-300 rounded-lg sm:rounded-xl px-2 py-1 shadow-2xs text-xs w-full sm:w-auto">
+            <i class="fa-solid fa-filter text-indigo-500 text-[10px] sm:text-xs"></i>
+            <select onchange="handleAdminFilterChange(this.value)" class="bg-transparent font-semibold text-slate-800 focus:outline-none cursor-pointer text-[11px] sm:text-xs w-full sm:w-auto">
+              <option value="ALL" ${adminSelectedMemberFilter === 'ALL' ? 'selected' : ''}>전체 구역원 통합</option>
+              ${MEMBERS.map(m => `
+                <option value="${m.id}" ${adminSelectedMemberFilter === m.id ? 'selected' : ''}>
+                  ${m.name} (${m.district})
+                </option>
+              `).join('')}
+            </select>
+          </div>
+        `;
+      } else {
+        adminFilterContainer.innerHTML = `
+          <span class="text-[10px] sm:text-xs text-slate-500 font-medium bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg sm:rounded-xl inline-flex items-center">
+            <i class="fa-solid fa-lock mr-1 text-[9px] sm:text-xs"></i>내 일정만 표시
+          </span>
+        `;
+      }
+
+      const adminMemberSection = document.getElementById("adminOnlyMemberSection");
+      if (isAdmin) {
+        adminMemberSection.classList.remove("hidden");
+        renderAdminMemberList();
+      } else {
+        adminMemberSection.classList.add("hidden");
+      }
+    }
+
+    /* ----------------------------------------------------
+       10. 관리자 전용 구역원 리스트 렌더링
+       ---------------------------------------------------- */
+    function renderAdminMemberList() {
+      const grid = document.getElementById("memberColorListGrid");
+      if (!grid) return;
+      grid.innerHTML = MEMBERS.map(m => {
+        const isSelected = adminSelectedMemberFilter === m.id;
+        return `
+          <div onclick="selectMemberByAdmin('${m.id}')" class="p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between group hover:shadow-sm ${
+            isSelected ? 'ring-2 ring-indigo-600 shadow-sm' : ''
+          }" style="background-color: ${m.colorTheme.bg}; border-color: ${m.colorTheme.border}">
+            <div class="flex items-center gap-2 overflow-hidden">
+              <span class="w-3 h-3 rounded-full shrink-0 shadow-2xs" style="background-color: ${m.colorTheme.dot}"></span>
+              <div class="truncate">
+                <div class="text-xs font-bold leading-tight" style="color: ${m.colorTheme.text}">
+                  ${m.name}
+                  ${m.role === '관리자' ? '<span class="text-[9px] font-extrabold text-indigo-600 ml-0.5">[관리자]</span>' : ''}
+                </div>
+                <div class="text-[10px] opacity-80" style="color: ${m.colorTheme.text}">${m.district} &bull; ${m.position}</div>
+              </div>
+            </div>
+            <span class="text-[10px] text-slate-400 group-hover:text-indigo-600 transition ml-1 shrink-0">
+              ${isSelected ? '<i class="fa-solid fa-check text-indigo-600"></i>' : '<i class="fa-solid fa-filter"></i>'}
+            </span>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function selectMemberByAdmin(memberId) {
+      if (currentUser.role !== '관리자') return;
+      adminSelectedMemberFilter = (adminSelectedMemberFilter === memberId) ? 'ALL' : memberId;
+      renderHeader();
+      renderCalendar();
+      updateMetrics();
+    }
+
+    /* ----------------------------------------------------
+       24시간제 시간 옵션 초기화
+       ---------------------------------------------------- */
+    function initTimeSelectors() {
+      const hourSelect = document.getElementById("scheduleHour");
+      const minSelect = document.getElementById("scheduleMinute");
+      if (!hourSelect || !minSelect) return;
+
+      // 00시 ~ 23시 생성
+      let hourOptions = '<option value="">시간 미정</option>';
+      for (let h = 0; h < 24; h++) {
+        const val = String(h).padStart(2, '0');
+        hourOptions += `<option value="${val}">${val}시</option>`;
+      }
+      hourSelect.innerHTML = hourOptions;
+
+      // 00분 ~ 55분 (5분 간격) 생성
+      let minOptions = '<option value="00">00분</option>';
+      for (let m = 5; m < 60; m += 5) {
+        const val = String(m).padStart(2, '0');
+        minOptions += `<option value="${val}">${val}분</option>`;
+      }
+      minSelect.innerHTML = minOptions;
+    }
+
+    /* ----------------------------------------------------
+       11. 일정 등록 / 수정 / 상세 모달 (24시간제 적용)
+       ---------------------------------------------------- */
+    let currentDetailSchedule = null;
+
+    function openScheduleModal(defaultDate = null, editItem = null) {
+      if (!currentUser) {
+        openLoginModal(true);
+        return;
+      }
+
+      initTimeSelectors();
+
+      const modal = document.getElementById("scheduleModal");
+      const titleElem = document.getElementById("scheduleModalTitle");
+      const iconElem = document.getElementById("scheduleModalIcon");
+      const deleteBtn = document.getElementById("deleteScheduleBtn");
+      const authorSection = document.getElementById("modalAuthorSelectSection");
+      const authorSelect = document.getElementById("scheduleAuthorSelect");
+
+      // 관리자인 경우 대상 지정 가능
+      if (currentUser.role === "관리자") {
+        authorSection.classList.remove("hidden");
+        authorSelect.innerHTML = MEMBERS.map(m => `
+          <option value="${m.id}" ${editItem ? (editItem.authorId === m.id ? 'selected' : '') : (m.id === currentUser.id ? 'selected' : '')}>
+            ${m.name} (${m.district})
+          </option>
+        `).join('');
+      } else {
+        authorSection.classList.add("hidden");
+      }
+
+      if (editItem) {
+        titleElem.innerText = "일정 수정";
+        iconElem.innerHTML = `<i class="fa-solid fa-pen-to-square"></i>`;
+        deleteBtn.classList.remove("hidden");
+        document.getElementById("editScheduleId").value = editItem.id;
+        document.getElementById("scheduleTitle").value = editItem.title;
+        document.getElementById("scheduleDate").value = editItem.date;
+        
+        // 24시간제 시간 분리 바인딩
+        if (editItem.time && editItem.time.includes(':')) {
+          const [h, m] = editItem.time.split(':');
+          document.getElementById("scheduleHour").value = h;
+          document.getElementById("scheduleMinute").value = m;
+        } else {
+          document.getElementById("scheduleHour").value = "";
+          document.getElementById("scheduleMinute").value = "00";
+        }
+
+        document.getElementById("scheduleDescription").value = editItem.description || "";
+
+        const radios = document.getElementsByName("scheduleCategory");
+        for (let r of radios) {
+          r.checked = (r.value === editItem.category);
+        }
+      } else {
+        titleElem.innerText = "새 일정 등록";
+        iconElem.innerHTML = `<i class="fa-solid fa-calendar-plus"></i>`;
+        deleteBtn.classList.add("hidden");
+        document.getElementById("editScheduleId").value = "";
+        document.getElementById("scheduleTitle").value = "";
+        document.getElementById("scheduleDate").value = defaultDate || new Date(2026, 10, 22).toISOString().split('T')[0];
+        document.getElementById("scheduleHour").value = "";
+        document.getElementById("scheduleMinute").value = "00";
+        document.getElementById("scheduleDescription").value = "";
+
+        const radios = document.getElementsByName("scheduleCategory");
+        if (radios.length > 0) radios[0].checked = true;
+      }
+
+      modal.classList.remove("hidden");
+    }
+
+    function closeScheduleModal() {
+      document.getElementById("scheduleModal").classList.add("hidden");
+    }
+
+    function handleScheduleFormSubmit(event) {
+      event.preventDefault();
+      const editId = document.getElementById("editScheduleId").value;
+      const title = document.getElementById("scheduleTitle").value.trim();
+      const date = document.getElementById("scheduleDate").value;
+      
+      const selHour = document.getElementById("scheduleHour").value;
+      const selMin = document.getElementById("scheduleMinute").value || "00";
+      const time = selHour ? `${selHour}:${selMin}` : "";
+
+      const desc = document.getElementById("scheduleDescription").value.trim();
+
+      const radios = document.getElementsByName("scheduleCategory");
+      let category = "심방";
+      for (let r of radios) {
+        if (r.checked) {
+          category = r.value;
+          break;
+        }
+      }
+
+      let authorId = currentUser.id;
+      if (currentUser.role === "관리자") {
+        authorId = document.getElementById("scheduleAuthorSelect").value;
+      }
+
+      let schedules = getStoredSchedules();
+
+      let updatedItem = null;
+      if (editId) {
+        const index = schedules.findIndex(s => s.id === editId);
+        if (index !== -1) {
+          updatedItem = {
+            ...schedules[index],
+            title,
+            date,
+            time,
+            category,
+            description: desc,
+            authorId: currentUser.role === "관리자" ? authorId : schedules[index].authorId
+          };
+          schedules[index] = updatedItem;
+          showToast("일정이 수정되었습니다.");
+        }
+      } else {
+        updatedItem = {
+          id: "sch_" + Date.now(),
+          authorId,
+          category,
+          title,
+          date,
+          time,
+          description: desc
+        };
+        schedules.push(updatedItem);
+        showToast("일정이 등록되었습니다.");
+      }
+
+      saveSchedules(schedules);
+      if (updatedItem) syncScheduleToCloud(updatedItem);
+      closeScheduleModal();
+      closeDetailModal();
+      renderCalendar();
+      updateMetrics();
+    }
+
+    function deleteCurrentEditingSchedule() {
+      const editId = document.getElementById("editScheduleId").value;
+      if (!editId) return;
+
+      if (window.confirm("이 일정을 삭제하시겠습니까?")) {
+        let schedules = getStoredSchedules();
+        schedules = schedules.filter(s => s.id !== editId);
+        saveSchedules(schedules);
+        deleteScheduleFromCloud(editId);
+        closeScheduleModal();
+        closeDetailModal();
+        showToast("일정이 삭제되었습니다.");
+        renderCalendar();
+        updateMetrics();
+      }
+    }
+        renderCalendar();
+        updateMetrics();
+      }
+    }
+
+    // 일정 상세 모달
+    function openDetailModal(item, author) {
+      currentDetailSchedule = item;
+      const modal = document.getElementById("detailModal");
+
+      document.getElementById("detailTitleText").innerText = item.title;
+      document.getElementById("detailDateText").innerText = formatDateKorean(item.date);
+
+      const timeRow = document.getElementById("detailTimeRow");
+      if (item.time) {
+        timeRow.classList.remove("hidden");
+        document.getElementById("detailTimeText").innerText = `${item.time} (24H)`;
+      } else {
+        timeRow.classList.add("hidden");
+      }
+
+      document.getElementById("detailHeaderColorBar").style.backgroundColor = author.colorTheme.border;
+
+      let catBadgeHtml = '';
+      if (item.category === "심방") catBadgeHtml = '<span class="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300">🍵 심방</span>';
+      else if (item.category === "개인") catBadgeHtml = '<span class="px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">👤 개인</span>';
+      else if (item.category === "생일") catBadgeHtml = '<span class="px-2 py-0.5 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-300">🎂 생일</span>';
+      else if (item.category === "행사") catBadgeHtml = '<span class="px-2 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800 border border-blue-300">🎉 행사</span>';
+      document.getElementById("detailCategoryBadge").innerHTML = catBadgeHtml;
+
+      const authorBadge = document.getElementById("detailAuthorBadge");
+      authorBadge.innerHTML = `
+        <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-xs font-bold border" style="background-color: ${author.colorTheme.bg}; color: ${author.colorTheme.text}; border-color: ${author.colorTheme.border}">
+          <span class="w-2 h-2 rounded-full" style="background-color: ${author.colorTheme.dot}"></span>
+          ${author.name} (${author.district} &bull; ${author.position})
+        </span>
+      `;
+
+      document.getElementById("detailDescText").innerText = item.description || "등록된 내용이 없습니다.";
+
+      const actionArea = document.getElementById("detailModalActionButtons");
+      const canEdit = (currentUser.role === "관리자" || currentUser.id === item.authorId);
+
+      if (canEdit) {
+        actionArea.innerHTML = `
+          <button onclick="deleteScheduleDirectly('${item.id}')" class="px-3 py-2 text-rose-600 hover:bg-rose-50 rounded-xl text-xs font-semibold transition">
+            <i class="fa-regular fa-trash-can mr-1"></i>삭제
+          </button>
+          <div class="flex items-center gap-2">
+            <button onclick="closeDetailModal()" class="px-3.5 py-2 border border-slate-200 text-slate-700 hover:bg-slate-100 rounded-xl text-xs font-semibold transition">
+              닫기
+            </button>
+            <button onclick="editScheduleFromDetail()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm transition">
+              <i class="fa-solid fa-pen mr-1"></i>수정하기
+            </button>
+          </div>
+        `;
+      } else {
+        actionArea.innerHTML = `
+          <div></div>
+          <button onclick="closeDetailModal()" class="px-4 py-2 bg-slate-800 text-white hover:bg-slate-900 rounded-xl text-xs font-semibold transition">
+            닫기
+          </button>
+        `;
+      }
+
+      modal.classList.remove("hidden");
+    }
+
+    function closeDetailModal() {
+      document.getElementById("detailModal").classList.add("hidden");
+      currentDetailSchedule = null;
+    }
+
+    function editScheduleFromDetail() {
+      if (!currentDetailSchedule) return;
+      const item = currentDetailSchedule;
+      closeDetailModal();
+      openScheduleModal(item.date, item);
+    }
+
+    function deleteScheduleDirectly(id) {
+      if (window.confirm("이 일정을 삭제하시겠습니까?")) {
+        let schedules = getStoredSchedules();
+        schedules = schedules.filter(s => s.id !== id);
+        saveSchedules(schedules);
+        deleteScheduleFromCloud(id);
+        closeDetailModal();
+        showToast("일정이 삭제되었습니다.");
+        renderCalendar();
+        updateMetrics();
+      }
+    }
+
+    /* ----------------------------------------------------
+       12. 유틸리티 함수
+       ---------------------------------------------------- */
+    let toastTimeout = null;
+    function showToast(text) {
+      const toast = document.getElementById("toastMessage");
+      const toastText = document.getElementById("toastText");
+      toastText.innerText = text;
+      toast.classList.remove("translate-y-10", "opacity-0", "pointer-events-none");
+      toast.classList.add("translate-y-0", "opacity-100");
+
+      if (toastTimeout) clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(() => {
+        toast.classList.remove("translate-y-0", "opacity-100");
+        toast.classList.add("translate-y-10", "opacity-0", "pointer-events-none");
+      }, 2500);
+    }
+
+    function formatDateKorean(dateStr) {
+      if (!dateStr) return "";
+      const parts = dateStr.split('-');
+      if (parts.length < 3) return dateStr;
+      return `${parts[0]}년 ${parseInt(parts[1])}월 ${parseInt(parts[2])}일`;
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function renderApp() {
+      renderHeader();
+      renderCalendar();
+      updateMetrics();
+    }
+
+    window.onload = function() {
+      initFirebase();
+      initUserSession();
+    };
+  </script>
+</body>
+</html>
