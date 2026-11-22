@@ -1,12 +1,11 @@
 // Firebase 설정 파일
-// Firebase 콘솔(https://console.firebase.google.com/)에서 프로젝트 생성 후 아래 정보를 교체하세요.
-// 설정하지 않더라도 시스템은 자동으로 로컬 스토리지(localStorage) 모드로 안전하게 작동합니다.
+// Firebase 콘솔에서 발급받은 실시간 Firestore 연동 설정입니다.
 
 window.FIREBASE_CONFIG = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.firebasestorage.app",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId: "YOUR_APP_ID"
+  apiKey: "AIzaSyDfWmivtVDrH3vLNN6Zd_q7Jww-gldaIZA",
+  authDomain: "regional-operations-system.firebaseapp.com",
+  projectId: "regional-operations-system",
+  storageBucket: "regional-operations-system.firebasestorage.app",
+  messagingSenderId: "435687872020",
+  appId: "1:435687872020:web:b45c3e775af2594c8a7901"
 };
