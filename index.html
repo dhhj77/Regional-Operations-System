@@ -767,9 +767,10 @@
     /* ----------------------------------------------------
        2. 상태 관리 (현재 사용자, 날짜, 필터) & 영구 자동 저장
        ---------------------------------------------------- */
+    const todayObj = new Date();
     let currentUser = null;
-    let currentYear = 2026;
-    let currentMonth = 11; // 1 ~ 12
+    let currentYear = todayObj.getFullYear();
+    let currentMonth = todayObj.getMonth() + 1; // 1 ~ 12
     let activeCategoryFilter = "ALL";
     let adminSelectedMemberFilter = "ALL"; // 관리자 전용: 특정 회원 필터링
     let isMetricOpen = false;
@@ -1022,8 +1023,9 @@
     }
 
     function goToToday() {
-      currentYear = 2026;
-      currentMonth = 11;
+      const now = new Date();
+      currentYear = now.getFullYear();
+      currentMonth = now.getMonth() + 1;
       renderCalendar();
       updateMetrics();
     }
@@ -1064,6 +1066,11 @@
       const firstDay = new Date(currentYear, currentMonth - 1, 1).getDay();
       const totalDays = new Date(currentYear, currentMonth, 0).getDate();
 
+      const todayDate = new Date();
+      const todayYear = todayDate.getFullYear();
+      const todayMonth = todayDate.getMonth() + 1;
+      const todayDay = todayDate.getDate();
+
       // 이전 달 빈 칸
       for (let i = 0; i < firstDay; i++) {
         const emptyCell = document.createElement("div");
@@ -1075,7 +1082,7 @@
       for (let day = 1; day <= totalDays; day++) {
         const dayString = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
         const dayOfWeek = (firstDay + day - 1) % 7;
-        const isToday = (currentYear === 2026 && currentMonth === 11 && day === 22);
+        const isToday = (currentYear === todayYear && currentMonth === todayMonth && day === todayDay);
 
         const cell = document.createElement("div");
         cell.className = `calendar-cell-min-h bg-white rounded-xl sm:rounded-2xl border p-1 sm:p-2 flex flex-col justify-between transition-all hover:border-blue-400 hover:shadow-xs active:bg-slate-50 cursor-pointer overflow-hidden ${
@@ -1413,7 +1420,9 @@
         deleteBtn.classList.add("hidden");
         document.getElementById("editScheduleId").value = "";
         document.getElementById("scheduleTitle").value = "";
-        document.getElementById("scheduleDate").value = defaultDate || new Date(2026, 10, 22).toISOString().split('T')[0];
+        const now = new Date();
+        const defaultDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        document.getElementById("scheduleDate").value = defaultDate || defaultDateStr;
         document.getElementById("scheduleHour").value = "";
         document.getElementById("scheduleMinute").value = "00";
         document.getElementById("scheduleDescription").value = "";
