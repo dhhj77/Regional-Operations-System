@@ -181,6 +181,13 @@
       </div>
     </section>
 
+    <!-- [NEW] 다가오는 가장 최근 일정 안내 배너 (구역 핵심 요약 지표와 구역원 일정 캘린더 사이) -->
+    <section id="upcomingScheduleBanner" class="bg-gradient-to-r from-blue-50/90 via-indigo-50/80 to-white rounded-xl sm:rounded-2xl border border-blue-200/80 shadow-xs sm:shadow-sm p-3.5 sm:p-5 transition-all">
+      <div id="upcomingScheduleContent" class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <!-- 동적으로 가장 최근 일정이 렌더링됩니다 -->
+      </div>
+    </section>
+
     <!-- 2. 구역원 일정 캘린더 메인 카드 -->
     <section class="bg-white rounded-xl sm:rounded-2xl border border-slate-200 shadow-xs sm:shadow-sm p-3 sm:p-6 flex flex-col gap-3 sm:gap-5">
       
@@ -1004,6 +1011,176 @@
           elMode.innerText = `${currentUser.name} 님 기준`;
         }
       }
+      updateUpcomingScheduleBanner();
+    }
+
+    /* ----------------------------------------------------
+       4-1. 다가오는 가장 최근 일정 안내 배너 렌더링
+       ---------------------------------------------------- */
+    function updateUpcomingScheduleBanner() {
+      const banner = document.getElementById("upcomingScheduleBanner");
+      const container = document.getElementById("upcomingScheduleContent");
+      if (!banner || !container) return;
+
+      if (!currentUser) {
+        banner.classList.add("hidden");
+        return;
+      }
+
+      banner.classList.remove("hidden");
+      const schedules = getStoredSchedules();
+
+      // 오늘 날짜 기준 (시간은 00:00:00으로 정규화)
+      const now = new Date();
+      now.setHours(0, 0, 0, 0);
+      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+      // 현재 사용자가 볼 수 있는 일정 필터링
+      let userSchedules = schedules.filter(item => {
+        if (!item.date) return false;
+        if (currentUser.role === "관리자") {
+          if (adminSelectedMemberFilter !== "ALL") {
+            return item.authorId === adminSelectedMemberFilter;
+          }
+          return true;
+        } else {
+          return item.authorId === currentUser.id;
+        }
+      });
+
+      // 오늘 포함 이후 일정 정렬
+      const upcoming = userSchedules.filter(item => item.date >= todayStr);
+      upcoming.sort((a, b) => {
+        const dateTimeA = `${a.date} ${a.time || '00:00'}`;
+        const dateTimeB = `${b.date} ${b.time || '00:00'}`;
+        return dateTimeA.localeCompare(dateTimeB);
+      });
+
+      // 가장 가까운 1번째 일정 추출
+      if (upcoming.length === 0) {
+        container.innerHTML = `
+          <div class="flex items-center gap-2.5 sm:gap-3 text-slate-600">
+            <span class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-sm shrink-0">
+              <i class="fa-solid fa-calendar-check"></i>
+            </span>
+            <div>
+              <div class="text-xs sm:text-sm font-bold text-slate-800">
+                ${currentUser.name} 님의 예정된 최근 일정이 없습니다.
+              </div>
+              <div class="text-[11px] sm:text-xs text-slate-500">
+                캘린더 날짜를 클릭하거나 [새 일정 등록] 버튼으로 일정을 추가해보세요.
+              </div>
+            </div>
+          </div>
+          <button onclick="openScheduleModal()" class="self-start sm:self-auto px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition">
+            <i class="fa-solid fa-plus text-[10px]"></i> 새 일정 등록
+          </button>
+        `;
+        return;
+      }
+
+      const nextItem = upcoming[0];
+      const author = MEMBERS.find(m => m.id === nextItem.authorId) || { name: "구역원", district: "" };
+
+      // D-Day 계산
+      const [y, m, d] = nextItem.date.split('-').map(Number);
+      const targetDate = new Date(y, m - 1, d);
+      targetDate.setHours(0, 0, 0, 0);
+
+      const diffTime = targetDate.getTime() - now.getTime();
+      const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+      let ddayBadgeHtml = '';
+      let highlightMessage = '';
+
+      if (diffDays === 0) {
+        ddayBadgeHtml = '<span class="px-2.5 py-1 rounded-full text-xs font-extrabold bg-rose-500 text-white shadow-xs animate-pulse">D-Day 오늘</span>';
+        highlightMessage = `오늘 예정된 <strong>${escapeHtml(nextItem.title)}</strong> 일정이 있습니다!`;
+      } else if (diffDays === 1) {
+        ddayBadgeHtml = '<span class="px-2.5 py-1 rounded-full text-xs font-extrabold bg-amber-500 text-white shadow-xs">D-1 내일</span>';
+        highlightMessage = `내일 <strong>${escapeHtml(nextItem.title)}</strong> 일정이 있습니다.`;
+      } else if (diffDays === 2) {
+        ddayBadgeHtml = '<span class="px-2.5 py-1 rounded-full text-xs font-extrabold bg-amber-600 text-white shadow-xs">D-2 모레</span>';
+        highlightMessage = `2일 뒤에 <strong>${escapeHtml(nextItem.title)}</strong> 일정이 있습니다.`;
+      } else {
+        ddayBadgeHtml = `<span class="px-2.5 py-1 rounded-full text-xs font-extrabold bg-blue-600 text-white shadow-xs">D-${diffDays}</span>`;
+        highlightMessage = `<strong class="text-blue-700 font-extrabold">${diffDays}일 뒤</strong>에 <strong>${escapeHtml(nextItem.title)}</strong> 일정이 있습니다.`;
+      }
+
+      // 카테고리 뱃지
+      let catTag = '';
+      if (nextItem.category === "심방") catTag = '<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">심방</span>';
+      else if (nextItem.category === "개인") catTag = '<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">개인</span>';
+      else if (nextItem.category === "행사") catTag = '<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200">행사</span>';
+      else if (nextItem.category === "생일") catTag = '<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-200">생일</span>';
+
+      container.innerHTML = `
+        <div class="flex items-start sm:items-center gap-3">
+          <div class="shrink-0 pt-0.5 sm:pt-0">
+            ${ddayBadgeHtml}
+          </div>
+          <div>
+            <div class="text-xs sm:text-sm font-bold text-slate-900 flex flex-wrap items-center gap-1.5">
+              ${currentUser.role === '관리자' && adminSelectedMemberFilter === 'ALL' ? `<span class="text-[11px] font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 px-1.5 py-0.2 rounded">${author.name}</span>` : ''}
+              <span>${highlightMessage}</span>
+              ${catTag}
+            </div>
+            <div class="text-[11px] sm:text-xs text-slate-500 mt-1 flex flex-wrap items-center gap-2 sm:gap-3">
+              <span class="inline-flex items-center gap-1">
+                <i class="fa-regular fa-calendar text-blue-500 text-[10px]"></i>
+                ${formatDateKorean(nextItem.date)}
+              </span>
+              ${nextItem.time ? `
+                <span class="inline-flex items-center gap-1">
+                  <i class="fa-regular fa-clock text-slate-400 text-[10px]"></i>
+                  ${escapeHtml(nextItem.time)}
+                </span>
+              ` : ''}
+              ${nextItem.description ? `
+                <span class="inline-flex items-center gap-1 text-slate-600 font-medium truncate max-w-[200px] sm:max-w-xs">
+                  <i class="fa-solid fa-location-dot text-rose-400 text-[10px]"></i>
+                  ${escapeHtml(nextItem.description)}
+                </span>
+              ` : ''}
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-1.5 shrink-0 self-end sm:self-auto pt-1 sm:pt-0">
+          <button onclick="goToScheduleDetail('${nextItem.id}')" class="px-3 py-1.5 bg-white hover:bg-slate-50 border border-blue-300 text-blue-700 rounded-lg text-xs font-bold shadow-2xs transition flex items-center gap-1">
+            <span>상세보기</span>
+            <i class="fa-solid fa-chevron-right text-[9px]"></i>
+          </button>
+          <button onclick="openScheduleModal('${nextItem.date}')" class="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-2xs transition" title="새 일정 추가">
+            <i class="fa-solid fa-plus text-[10px]"></i>
+          </button>
+        </div>
+      `;
+    }
+
+    function goToScheduleDetail(scheduleId) {
+      const schedules = getStoredSchedules();
+      const item = schedules.find(s => s.id === scheduleId);
+      if (!item) return;
+
+      const author = MEMBERS.find(m => m.id === item.authorId) || {
+        name: "구역원",
+        district: "",
+        colorTheme: { border: "#CBD5E1" }
+      };
+
+      // 해당 날짜의 년/월로 캘린더 이동 후 상세 모달 표시
+      if (item.date) {
+        const parts = item.date.split('-');
+        if (parts.length >= 2) {
+          currentYear = parseInt(parts[0]);
+          currentMonth = parseInt(parts[1]);
+          renderCalendar();
+          updateMetrics();
+        }
+      }
+
+      openDetailModal(item, author);
     }
 
     /* ----------------------------------------------------
